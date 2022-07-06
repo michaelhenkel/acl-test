@@ -1,11 +1,8 @@
-use futures::SinkExt;
 use ipnet::Ipv4Net;
 use std::net::Ipv4Addr;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc,Mutex};
-use rand::Rng;
-use std::time::{Duration, Instant};
-use std::thread::sleep;
+use std::rc::Rc;
+use std::time::Instant;
 
 #[derive(Debug,PartialEq,Hash,Eq, Clone)]
 struct Flow {
@@ -40,17 +37,17 @@ enum Action {
 
 #[derive(Debug,Clone)]
 struct FlowTable{
-    src_map: Arc<Mutex<BTreeMap<u8, HashMap<(u32,u16), bool>>>>,
-    dst_map: Arc<Mutex<BTreeMap<u8, HashMap<(u32,u16), bool>>>>,
-    flow_map: Arc<Mutex<HashMap<(u32, u16, u32, u16), Action>>>,
+    src_map: Rc<BTreeMap<u8, HashMap<(u32,u16), bool>>>,
+    dst_map: Rc<BTreeMap<u8, HashMap<(u32,u16), bool>>>,
+    flow_map: Rc<HashMap<(u32, u16, u32, u16), Action>>,
 }
 
 impl FlowTable {
     fn new() -> Self {
         Self {  
-            src_map: Arc::new(Mutex::new(BTreeMap::new())),
-            dst_map: Arc::new(Mutex::new(BTreeMap::new())),
-            flow_map: Arc::new(Mutex::new(HashMap::new())),
+            src_map: Rc::new(BTreeMap::new()),
+            dst_map: Rc::new(BTreeMap::new()),
+            flow_map: Rc::new(HashMap::new()),
         }
     }
     fn add_flow(&mut self, flow: Flow){
@@ -60,7 +57,7 @@ impl FlowTable {
         } else {
             src_mask = 32 - ((4294967295 - flow.src_mask + 1) as f32).log2() as u8;
         }
-        let mut src_map = self.src_map.lock().unwrap();
+        let src_map = Rc::get_mut(&mut self.src_map).unwrap(); 
         let res = src_map.get_mut(&src_mask);
         match res {
             Some(map) => {
@@ -79,7 +76,7 @@ impl FlowTable {
         } else {
             dst_mask = 32 - ((4294967295 - flow.dst_mask + 1) as f32).log2() as u8;
         }
-        let mut dst_map = self.dst_map.lock().unwrap();
+        let dst_map = Rc::get_mut(&mut self.dst_map).unwrap(); 
         let res = dst_map.get_mut(&dst_mask);
         match res {
             Some(map) => {
@@ -91,63 +88,62 @@ impl FlowTable {
                 dst_map.insert(dst_mask, map);
             },
         }
-        let mut flow_map = self.flow_map.lock().unwrap();
+        let flow_map = Rc::get_mut(&mut self.flow_map).unwrap(); 
         flow_map.insert((flow.src_net, flow.src_port, flow.dst_net, flow.dst_port), flow.action);
 
     }
 
     fn match_flow(&mut self, packet: Packet) -> Option<Action>{
-        let src_map = self.src_map.lock().unwrap();
-        let dst_map = self.dst_map.lock().unwrap();
-        let flow_map = self.flow_map.lock().unwrap();
-        let src_net_specific = get_net_port(packet.src_ip, packet.src_port, src_map.clone());
-        let dst_net_specific = get_net_port(packet.dst_ip, packet.dst_port, dst_map.clone());
-
+        
+        // match specific src/dst port first
+        let src_net_specific = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
+        let dst_net_specific = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
         if src_net_specific.is_some() && dst_net_specific.is_some(){
             let (src_net, src_port) = src_net_specific.unwrap();
             let (dst_net, dst_port) = dst_net_specific.unwrap();
-            let res = flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
             return res.cloned()
         }
 
-        let src_net_0 = get_net_port(packet.src_ip, 0, src_map.clone());
-
+        // match specific src_port and 0 dst_port
+        let src_net_0 = get_net_port(packet.src_ip, 0, self.src_map.clone());
         if src_net_0.is_some() && dst_net_specific.is_some(){
             let (src_net, src_port) = src_net_0.unwrap();
             let (dst_net, dst_port) = dst_net_specific.unwrap();
-            let res = flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
             return res.cloned()
         }
 
-        let dst_net_0 = get_net_port(packet.dst_ip, 0, dst_map.clone());
-
+        // match 0 src_port and specific dst_port
+        let dst_net_0 = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
         if src_net_specific.is_some() && dst_net_0.is_some(){
             let (src_net, src_port) = src_net_specific.unwrap();
             let (dst_net, dst_port) = dst_net_0.unwrap();
-            let res = flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
             return res.cloned()
         }
 
+        // match 0 src_port and 0 dst_port
         if src_net_0.is_some() && dst_net_0.is_some(){
             let (src_net, src_port) = src_net_0.unwrap();
             let (dst_net, dst_port) = dst_net_0.unwrap();
-            let res = flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
             return res.cloned()
         }
         None
     }
 }
 
-fn get_net_port(ip: u32, port: u16, map: BTreeMap<u8, HashMap<(u32,u16), bool>>) -> Option<(u32,u16)>{
-    for (mask, map) in map {
+fn get_net_port(ip: u32, port: u16, map: Rc<BTreeMap<u8, HashMap<(u32,u16), bool>>>) -> Option<(u32,u16)>{
+    for (mask, map) in map.as_ref() {
         let bin = ip;
         let base: u32 = 2;
         let max_mask_bin = 4294967295;
         let mask_bin: u32;
-        if mask == 32 {
+        if *mask == 32 {
             mask_bin = 32;
         } else {
-            mask_bin = max_mask_bin - (base.pow(mask as u32) - 1);
+            mask_bin = max_mask_bin - (base.pow(*mask as u32) - 1);
         }
         let masked: u32 = bin & mask_bin;
         let kv = map.get_key_value(&(masked, port));
@@ -158,6 +154,7 @@ fn get_net_port(ip: u32, port: u16, map: BTreeMap<u8, HashMap<(u32,u16), bool>>)
     }
     None
 }
+
 #[derive(Debug, Clone)]
 struct Packet {
     src_ip: u32,
