@@ -94,53 +94,84 @@ impl FlowTable {
     }
 
     async fn match_flow(&mut self, packet: Packet) -> Option<&Action>{
-        let src_net_fut = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
 
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
+        let hdlr_1 = async {
+            let src_net_fut = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
+            let dst_net_fut = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
 
-        if src_net.is_some() && dst_net.is_some(){
-            let (src_net, src_port) = src_net.unwrap();
-            let (dst_net, dst_port) = dst_net.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
-            return res.clone()
+            let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
+
+            if src_net.is_some() && dst_net.is_some(){
+                let (src_net, src_port) = src_net.unwrap();
+                let (dst_net, dst_port) = dst_net.unwrap();
+                let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+                return res.clone()
+            }
+            None
+        };
+
+        let hdlr_2 = async {
+            let src_net_fut = get_net_port(packet.src_ip, 0, self.src_map.clone());
+            let dst_net_fut = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
+
+            let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
+
+            if src_net.is_some() && dst_net.is_some(){
+                let (src_net, src_port) = src_net.unwrap();
+                let (dst_net, dst_port) = dst_net.unwrap();
+                let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+                return res.clone()
+            }
+            None
+        };
+
+        let hdlr_3 = async {
+            let src_net_fut = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
+            let dst_net_fut = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
+
+            let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
+
+            if src_net.is_some() && dst_net.is_some(){
+                let (src_net, src_port) = src_net.unwrap();
+                let (dst_net, dst_port) = dst_net.unwrap();
+                let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+                return res.clone()
+            }
+            None
+        };
+
+        let hdlr_4 = async {
+            let src_net_fut = get_net_port(packet.src_ip, 0, self.src_map.clone());
+            let dst_net_fut = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
+
+            let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
+
+            if src_net.is_some() && dst_net.is_some(){
+                let (src_net, src_port) = src_net.unwrap();
+                let (dst_net, dst_port) = dst_net.unwrap();
+                let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+                return res.clone()
+            }
+            None
+        };
+
+        let (hdlr_1_res, hdlr_2_res, hdlr_3_res, hdlr_4_res) = futures::future::join4(hdlr_1, hdlr_2, hdlr_3, hdlr_4).await;
+        if hdlr_1_res.is_some() {
+            return hdlr_1_res
         }
 
-        let src_net_fut = get_net_port(packet.src_ip, 0, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
-
-        if src_net.is_some() && dst_net.is_some(){
-            let (src_net, src_port) = src_net.unwrap();
-            let (dst_net, dst_port) = dst_net.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
-            return res.clone()
+        if hdlr_2_res.is_some() {
+            return hdlr_2_res
         }
 
-        let src_net_fut = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
-
-        if src_net.is_some() && dst_net.is_some(){
-            let (src_net, src_port) = src_net.unwrap();
-            let (dst_net, dst_port) = dst_net.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
-            return res.clone()
+        if hdlr_3_res.is_some() {
+            return hdlr_3_res
         }
 
-        let src_net_fut = get_net_port(packet.src_ip, 0, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
-
-        if src_net.is_some() && dst_net.is_some(){
-            let (src_net, src_port) = src_net.unwrap();
-            let (dst_net, dst_port) = dst_net.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
-            return res.clone()
+        if hdlr_4_res.is_some() {
+            return hdlr_4_res
         }
+
         None
     }
 }
@@ -184,63 +215,6 @@ impl Packet {
     }
 }
 
-fn flow_entry_generator(count: usize, mask_range: (u8, u8), src_port_range: (u16, u16), dst_port_range: (u16, u16)) -> (Vec<(Ipv4Net, u16, Ipv4Net, u16)>, Vec<Flow>){
-    let mut rng = rand::thread_rng();
-    let mut flow_list = Vec::new();
-    let mut network_list = Vec::new();
-    for _ in 1..count {
-
-        let octet_1: u8 = rng.gen_range(1..254);
-        let octet_2: u8 = rng.gen_range(0..254);
-        let octet_3: u8 = rng.gen_range(0..254);
-        let octet_4: u8 = rng.gen_range(0..254);
-        let mask = rng.gen_range(mask_range.0..mask_range.1);
-        let src_net = Ipv4Net::new(Ipv4Addr::new(octet_1, octet_2, octet_3, octet_4), mask).unwrap();
-
-        let octet_1: u8 = rng.gen_range(1..254);
-        let octet_2: u8 = rng.gen_range(0..254);
-        let octet_3: u8 = rng.gen_range(0..254);
-        let octet_4: u8 = rng.gen_range(0..254);
-        let mask = rng.gen_range(mask_range.0..mask_range.1);
-        let dst_net = Ipv4Net::new(Ipv4Addr::new(octet_1, octet_2, octet_3, octet_4), mask).unwrap();
-
-
-        let action_gen: u8 = rng.gen_range(0..1);
-        let action: Action;
-        if action_gen == 0 {
-            action = Action::Allow("foo".into());
-        } else {
-            action = Action::Deny;
-        }
-        let src_port = rng.gen_range(src_port_range.0..src_port_range.1);
-        let dst_port = rng.gen_range(dst_port_range.0..dst_port_range.1);
-        let flow = Flow::new(src_net, src_port, dst_net, dst_port, action);
-
-        flow_list.push(flow);
-        network_list.push((src_net, src_port, dst_net, dst_port));
-    }
-    (network_list, flow_list)
-}
-
-fn packet_generator(count: usize, network_list: Vec<(Ipv4Net, u16, Ipv4Net, u16)>) -> Vec<Packet>{
-
-    let mut packet_list = Vec::new();
-    let mut rng = rand::thread_rng();
-    for _ in 0..count{
-        let random_net = rng.gen_range(0..network_list.len());
-        let (src_net, src_port, dst_net, dst_port) = network_list[random_net];
-        let src_hosts = src_net.hosts().collect::<Vec<Ipv4Addr>>();
-        let dst_hosts = dst_net.hosts().collect::<Vec<Ipv4Addr>>();
-        let random_src = rng.gen_range(0..src_hosts.len());
-        let random_dst = rng.gen_range(0..dst_hosts.len());
-        let src_host = src_hosts[random_src];
-        let dst_host = dst_hosts[random_dst];
-        let packet = Packet::new(src_host, src_port, dst_host, dst_port);
-        packet_list.push(packet);
-    }
-    packet_list
-}
-
 fn main() {
     let mut flow_table = FlowTable::new();
 
@@ -282,8 +256,6 @@ fn main() {
     }
     println!("2nd stage lookup {:?}", now.elapsed());
 
-
-
     flow_table.add_flow(Flow::new("5.0.0.0/23".parse().unwrap(),
         0,
         "6.0.0.0/23".parse().unwrap(),
@@ -301,7 +273,6 @@ fn main() {
         //println!("{:?}", res);
     }
     println!("3rd stage lookup {:?}", now.elapsed());
-
 
     flow_table.add_flow(Flow::new("0.0.0.0/0".parse().unwrap(),
         0,
