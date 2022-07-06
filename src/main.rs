@@ -99,12 +99,34 @@ impl FlowTable {
         let dst_map = self.dst_map.clone();
         
         let src_join_handle = tokio::spawn(async move{
-            get_net_port(packet.src_ip, packet.src_port, src_map).await
+            get_net_port(packet.src_ip, packet.src_port, src_map)
         });
 
         
         let dst_join_handle = tokio::spawn(async move{
-            get_net_port(packet.dst_ip, packet.dst_port, dst_map).await
+            get_net_port(packet.dst_ip, packet.dst_port, dst_map)
+        });
+    
+        let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
+
+        if src_net.as_ref().ok().unwrap().is_some() && dst_net.as_ref().ok().unwrap().is_some(){
+            let (src_net, src_port) = src_net.unwrap().unwrap();
+            let (dst_net, dst_port) = dst_net.unwrap().unwrap();
+            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            return res.clone()
+        }
+
+
+
+
+        let src_map = self.src_map.clone();
+        let dst_map = self.dst_map.clone();
+        let src_join_handle = tokio::spawn(async move{
+            get_net_port(packet.src_ip, 0, src_map)
+        });
+
+        let dst_join_handle = tokio::spawn(async move{
+            get_net_port(packet.dst_ip, packet.dst_port, dst_map)
         });
 
         let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
@@ -122,33 +144,11 @@ impl FlowTable {
         let src_map = self.src_map.clone();
         let dst_map = self.dst_map.clone();
         let src_join_handle = tokio::spawn(async move{
-            get_net_port(packet.src_ip, 0, src_map).await
+            get_net_port(packet.src_ip, packet.src_port, src_map)
         });
 
         let dst_join_handle = tokio::spawn(async move{
-            get_net_port(packet.dst_ip, packet.dst_port, dst_map).await
-        });
-
-        let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
-
-        if src_net.as_ref().ok().unwrap().is_some() && dst_net.as_ref().ok().unwrap().is_some(){
-            let (src_net, src_port) = src_net.unwrap().unwrap();
-            let (dst_net, dst_port) = dst_net.unwrap().unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
-            return res.clone()
-        }
-
-
-
-
-        let src_map = self.src_map.clone();
-        let dst_map = self.dst_map.clone();
-        let src_join_handle = tokio::spawn(async move{
-            get_net_port(packet.src_ip, packet.src_port, src_map).await
-        });
-
-        let dst_join_handle = tokio::spawn(async move{
-            get_net_port(packet.dst_ip, 0, dst_map).await
+            get_net_port(packet.dst_ip, 0, dst_map)
         });
 
         let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
@@ -165,11 +165,11 @@ impl FlowTable {
         let src_map = self.src_map.clone();
         let dst_map = self.dst_map.clone();
         let src_join_handle = tokio::spawn(async move{
-            get_net_port(packet.src_ip, 0, src_map).await
+            get_net_port(packet.src_ip, 0, src_map)
         });
 
         let dst_join_handle = tokio::spawn(async move{
-            get_net_port(packet.dst_ip, 0, dst_map).await
+            get_net_port(packet.dst_ip, 0, dst_map)
         });
 
         let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
@@ -185,9 +185,8 @@ impl FlowTable {
     }
 }
 
-async fn get_net_port(ip: u32, port: u16, map: BTreeMap<u8, HashMap<(u32,u16), bool>>) -> Option<(u32,u16)>{
+fn get_net_port(ip: u32, port: u16, map: BTreeMap<u8, HashMap<(u32,u16), bool>>) -> Option<(u32,u16)>{
     for (mask, map) in map.clone() {
-        let bin = ip;
         let base: u32 = 2;
         let max_mask_bin = 4294967295;
         let mask_bin: u32;
@@ -196,7 +195,7 @@ async fn get_net_port(ip: u32, port: u16, map: BTreeMap<u8, HashMap<(u32,u16), b
         } else {
             mask_bin = max_mask_bin - (base.pow(mask as u32) - 1);
         }
-        let masked: u32 = bin & mask_bin;
+        let masked: u32 = ip & mask_bin;
         let kv = map.get_key_value(&(masked, port));
         match kv {
             Some((k,_)) => { return Some(k.clone()) },
@@ -298,8 +297,7 @@ async fn main() {
 
     let now = Instant::now();
     for _ in 0..1000000{
-        let res = flow_table.match_flow(packet.clone());
-        let res = res.await;
+        let res = flow_table.match_flow(packet.clone()).await;
         //assert_eq!(None,res);
         //println!("{:?}", res);
     }
@@ -317,8 +315,7 @@ async fn main() {
     
     let now = Instant::now();
     for _ in 0..1000000{
-        let res = flow_table.match_flow(packet.clone());
-        let res = res.await;
+        let res = flow_table.match_flow(packet.clone()).await;
         //assert_eq!(Some(&Action::Allow("int1".into())),res);
         //println!("{:?}", res);
     }
@@ -337,8 +334,7 @@ async fn main() {
 
     let now = Instant::now();
     for _ in 0..1000000{
-        let res = flow_table.match_flow(packet.clone());
-        let res = res.await;
+        let res = flow_table.match_flow(packet.clone()).await;
         //assert_eq!(Some(&Action::Allow("int1".into())),res);
         //println!("{:?}", res);
     }
@@ -356,8 +352,7 @@ async fn main() {
     let packet = Packet::new("1.2.3.5".parse().unwrap(), 0, "5.6.7.8".parse().unwrap(), 80);
     let now = Instant::now();
     for _ in 0..1000000{
-        let res = flow_table.match_flow(packet.clone());
-        let res = res.await;
+        let res = flow_table.match_flow(packet.clone()).await;
         //assert_eq!(Some(&Action::Allow("int3".into())),res);
         //println!("{:?}", res);
     }
