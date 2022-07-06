@@ -1,3 +1,4 @@
+use futures::SinkExt;
 use ipnet::Ipv4Net;
 use std::net::Ipv4Addr;
 use std::collections::{BTreeMap, HashMap};
@@ -6,7 +7,7 @@ use rand::Rng;
 use std::time::{Duration, Instant};
 use std::thread::sleep;
 
-#[derive(Debug,PartialEq,Hash,Eq)]
+#[derive(Debug,PartialEq,Hash,Eq, Clone)]
 struct Flow {
     src_net: u32,
     src_mask: u32,
@@ -164,7 +165,7 @@ async fn get_net_port(ip: u32, port: u16, map: BTreeMap<u8, HashMap<(u32,u16), b
     }
     None
 }
-
+#[derive(Debug, Clone)]
 struct Packet {
     src_ip: u32,
     dst_ip: u32,
@@ -241,103 +242,85 @@ fn packet_generator(count: usize, network_list: Vec<(Ipv4Net, u16, Ipv4Net, u16)
 }
 
 fn main() {
-
-    let now = Instant::now();
-    let (network_list, flow_list) = flow_entry_generator(10, (20,30), (80, 200), (200, 300));
-    let packet_list = packet_generator(1000000, network_list);
-    println!("generate time {:?}", now.elapsed());
-
     let mut flow_table = FlowTable::new();
 
-    for flow in flow_list{
-        flow_table.add_flow(flow);
-    }
 
-    let mut result_list = Vec::new();
-
-    let now = Instant::now();
-    for packet in packet_list {
-        let mut flow_table = flow_table.clone();
-        let res = flow_table.match_flow(packet);
-        let res = block_on(res);
-        result_list.push(res.cloned());
-    }
-    println!("match time {:?}", now.elapsed());
-
-    /* 
-    flow_table.add_flow(Flow::new("1.0.0.0/24".parse().unwrap(),
+    flow_table.add_flow(Flow::new("1.0.0.0/25".parse().unwrap(),
         0,
-        "2.0.0.0/24".parse().unwrap(),
+        "2.0.0.0/25".parse().unwrap(),
         80,
         Action::Allow("int1".into())
     ));
     
-
-    
     let packet = Packet::new("1.0.0.1".parse().unwrap(), 0, "2.0.0.1".parse().unwrap(), 80);
-    let res = flow_table.match_flow(packet);
-    let res = block_on(res);
-    assert_eq!(Some(&Action::Allow("int1".into())),res);
-    println!("{:?}", res);
 
-    
-    let packet = Packet::new("1.1.1.1".parse().unwrap(), 0, "2.0.0.1".parse().unwrap(), 80);
-    let res = flow_table.match_flow(packet);
-    let res = block_on(res);
-    assert_eq!(None,res);
-    println!("{:?}", res);
-    
-    
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = block_on(res);
+        //assert_eq!(None,res);
+        //println!("{:?}", res);
+    }
+    println!("1st stage lookup {:?}", now.elapsed());
 
-    flow_table.add_flow(Flow::new("1.0.0.0/25".parse().unwrap(),
+
+    flow_table.add_flow(Flow::new("3.0.0.0/24".parse().unwrap(),
         0,
-        "2.0.0.0/24".parse().unwrap(),
+        "4.0.0.0/24".parse().unwrap(),
         80,
         Action::Allow("int2".into())
     ));
-
     
-    flow_table.add_flow(Flow::new("1.1.1.0/24".parse().unwrap(),
+    let packet = Packet::new("3.0.0.1".parse().unwrap(), 0, "4.0.0.1".parse().unwrap(), 80);
+    
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = block_on(res);
+        //assert_eq!(Some(&Action::Allow("int1".into())),res);
+        //println!("{:?}", res);
+    }
+    println!("2nd stage lookup {:?}", now.elapsed());
+
+
+
+    flow_table.add_flow(Flow::new("5.0.0.0/23".parse().unwrap(),
         0,
-        "2.0.0.0/24".parse().unwrap(),
+        "6.0.0.0/23".parse().unwrap(),
         80,
         Action::Allow("int3".into())
     ));
-    
+
+    let packet = Packet::new("5.0.0.1".parse().unwrap(), 0, "6.0.0.1".parse().unwrap(), 80);
+
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = block_on(res);
+        //assert_eq!(Some(&Action::Allow("int1".into())),res);
+        //println!("{:?}", res);
+    }
+    println!("3rd stage lookup {:?}", now.elapsed());
+
+
     flow_table.add_flow(Flow::new("0.0.0.0/0".parse().unwrap(),
         0,
         "0.0.0.0/0".parse().unwrap(),
-        81,
-        Action::Deny
-    ));
- 
-    flow_table.add_flow(Flow::new("0.0.0.0/0".parse().unwrap(),
         0,
-        "0.0.0.0/0".parse().unwrap(),
-        0,
-        Action::Allow("int5".into())
+        Action::Allow("int4".into())
     ));
     
      
-    let packet = Packet::new("1.1.1.1".parse().unwrap(), 0, "2.0.0.1".parse().unwrap(), 80);
-    let res = flow_table.match_flow(packet);
-    let res = block_on(res);
-    assert_eq!(Some(&Action::Allow("int3".into())),res);
-    println!("{:?}", res);
-    
+    let packet = Packet::new("1.2.3.5".parse().unwrap(), 0, "5.6.7.8".parse().unwrap(), 80);
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = block_on(res);
+        //assert_eq!(Some(&Action::Allow("int3".into())),res);
+        //println!("{:?}", res);
+    }
+    println!("4rd stage lookup {:?}", now.elapsed());
 
-    let packet = Packet::new("1.2.3.4".parse().unwrap(), 80, "5.6.7.8".parse().unwrap(), 80);
-    let res = flow_table.match_flow(packet);
-    let res = block_on(res);
-    assert_eq!(Some(&Action::Allow("int5".into())),res);
-    println!("{:?}", res);
-
-    let packet = Packet::new("1.0.0.4".parse().unwrap(), 80, "5.6.7.8".parse().unwrap(), 81);
-    let res = flow_table.match_flow(packet);
-    let res = block_on(res);
-    assert_eq!(Some(&Action::Deny),res);
-    println!("{:?}", res);
-    */
 
 }
 
