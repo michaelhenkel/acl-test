@@ -109,7 +109,7 @@ impl FlowTable {
 
         let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
 
-        if src_net.as_ref().ok().is_some() && dst_net.as_ref().ok().is_some(){
+        if src_net.as_ref().ok().unwrap().is_some() && dst_net.as_ref().ok().unwrap().is_some(){
             let (src_net, src_port) = src_net.unwrap().unwrap();
             let (dst_net, dst_port) = dst_net.unwrap().unwrap();
             let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
@@ -131,7 +131,7 @@ impl FlowTable {
 
         let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
 
-        if src_net.as_ref().ok().is_some() && dst_net.as_ref().ok().is_some(){
+        if src_net.as_ref().ok().unwrap().is_some() && dst_net.as_ref().ok().unwrap().is_some(){
             let (src_net, src_port) = src_net.unwrap().unwrap();
             let (dst_net, dst_port) = dst_net.unwrap().unwrap();
             let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
@@ -153,7 +153,7 @@ impl FlowTable {
 
         let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
 
-        if src_net.as_ref().ok().is_some() && dst_net.as_ref().ok().is_some(){
+        if src_net.as_ref().ok().unwrap().is_some() && dst_net.as_ref().ok().unwrap().is_some(){
             let (src_net, src_port) = src_net.unwrap().unwrap();
             let (dst_net, dst_port) = dst_net.unwrap().unwrap();
             let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
@@ -174,55 +174,13 @@ impl FlowTable {
 
         let (src_net, dst_net) = futures::future::join(src_join_handle, dst_join_handle).await;
 
-        if src_net.as_ref().ok().is_some() && dst_net.as_ref().ok().is_some(){
+        if src_net.as_ref().ok().unwrap().is_some() && dst_net.as_ref().ok().unwrap().is_some(){
             let (src_net, src_port) = src_net.unwrap().unwrap();
             let (dst_net, dst_port) = dst_net.unwrap().unwrap();
             let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
             return res.clone()
         }
 
-
-
-        /* 
-
-        let src_net_fut = get_net_port(packet.src_ip, 0, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
-
-        if src_net.is_some() && dst_net.is_some(){
-            let (src_net, src_port) = src_net.unwrap();
-            let (dst_net, dst_port) = dst_net.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
-            return res.clone()
-        }
-
-        let src_net_fut = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
-
-        if src_net.is_some() && dst_net.is_some(){
-            let (src_net, src_port) = src_net.unwrap();
-            let (dst_net, dst_port) = dst_net.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
-            return res.clone()
-        }
-
-        let src_net_fut = get_net_port(packet.src_ip, 0, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
-
-       
-
-        if src_net.is_some() && dst_net.is_some(){
-            let (src_net, src_port) = src_net.unwrap();
-            let (dst_net, dst_port) = dst_net.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
-            return res.clone()
-        }
-         */
         None
     }
 }
@@ -323,11 +281,12 @@ fn packet_generator(count: usize, network_list: Vec<(Ipv4Net, u16, Ipv4Net, u16)
     packet_list
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
 
     let now = Instant::now();
     let (network_list, flow_list) = flow_entry_generator(10, (20,30), (80, 200), (200, 300));
-    let packet_list = packet_generator(10000, network_list);
+    let packet_list = packet_generator(10, network_list);
     println!("generate time {:?}", now.elapsed());
 
     let mut flow_table = FlowTable::new();
@@ -342,10 +301,11 @@ fn main() {
     for packet in packet_list {
         let mut flow_table = flow_table.clone();
         let res = flow_table.match_flow(packet);
-        let res = block_on(res);
+        let res = res.await;
         result_list.push(res.cloned());
     }
     println!("match time {:?}", now.elapsed());
+    println!("matches {:?}",result_list);
 
     /* 
     flow_table.add_flow(Flow::new("1.0.0.0/24".parse().unwrap(),
