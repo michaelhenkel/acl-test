@@ -184,63 +184,6 @@ impl Packet {
     }
 }
 
-fn flow_entry_generator(count: usize, mask_range: (u8, u8), src_port_range: (u16, u16), dst_port_range: (u16, u16)) -> (Vec<(Ipv4Net, u16, Ipv4Net, u16)>, Vec<Flow>){
-    let mut rng = rand::thread_rng();
-    let mut flow_list = Vec::new();
-    let mut network_list = Vec::new();
-    for _ in 1..count {
-
-        let octet_1: u8 = rng.gen_range(1..254);
-        let octet_2: u8 = rng.gen_range(0..254);
-        let octet_3: u8 = rng.gen_range(0..254);
-        let octet_4: u8 = rng.gen_range(0..254);
-        let mask = rng.gen_range(mask_range.0..mask_range.1);
-        let src_net = Ipv4Net::new(Ipv4Addr::new(octet_1, octet_2, octet_3, octet_4), mask).unwrap();
-
-        let octet_1: u8 = rng.gen_range(1..254);
-        let octet_2: u8 = rng.gen_range(0..254);
-        let octet_3: u8 = rng.gen_range(0..254);
-        let octet_4: u8 = rng.gen_range(0..254);
-        let mask = rng.gen_range(mask_range.0..mask_range.1);
-        let dst_net = Ipv4Net::new(Ipv4Addr::new(octet_1, octet_2, octet_3, octet_4), mask).unwrap();
-
-
-        let action_gen: u8 = rng.gen_range(0..1);
-        let action: Action;
-        if action_gen == 0 {
-            action = Action::Allow("foo".into());
-        } else {
-            action = Action::Deny;
-        }
-        let src_port = rng.gen_range(src_port_range.0..src_port_range.1);
-        let dst_port = rng.gen_range(dst_port_range.0..dst_port_range.1);
-        let flow = Flow::new(src_net, src_port, dst_net, dst_port, action);
-
-        flow_list.push(flow);
-        network_list.push((src_net, src_port, dst_net, dst_port));
-    }
-    (network_list, flow_list)
-}
-
-fn packet_generator(count: usize, network_list: Vec<(Ipv4Net, u16, Ipv4Net, u16)>) -> Vec<Packet>{
-
-    let mut packet_list = Vec::new();
-    let mut rng = rand::thread_rng();
-    for _ in 0..count{
-        let random_net = rng.gen_range(0..network_list.len());
-        let (src_net, src_port, dst_net, dst_port) = network_list[random_net];
-        let src_hosts = src_net.hosts().collect::<Vec<Ipv4Addr>>();
-        let dst_hosts = dst_net.hosts().collect::<Vec<Ipv4Addr>>();
-        let random_src = rng.gen_range(0..src_hosts.len());
-        let random_dst = rng.gen_range(0..dst_hosts.len());
-        let src_host = src_hosts[random_src];
-        let dst_host = dst_hosts[random_dst];
-        let packet = Packet::new(src_host, src_port, dst_host, dst_port);
-        packet_list.push(packet);
-    }
-    packet_list
-}
-
 fn main() {
     let mut flow_table = FlowTable::new();
 
@@ -319,7 +262,7 @@ fn main() {
         //assert_eq!(Some(&Action::Allow("int3".into())),res);
         //println!("{:?}", res);
     }
-    println!("4rd stage lookup {:?}", now.elapsed());
+    println!("4th stage lookup {:?}", now.elapsed());
 
 
 }
