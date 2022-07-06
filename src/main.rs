@@ -94,10 +94,8 @@ impl FlowTable {
     }
 
     async fn match_flow(&mut self, packet: Packet) -> Option<&Action>{
-        let src_net_fut = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
+        let src_net = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
+        let dst_net = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
 
         if src_net.is_some() && dst_net.is_some(){
             let (src_net, src_port) = src_net.unwrap();
@@ -106,10 +104,8 @@ impl FlowTable {
             return res.clone()
         }
 
-        let src_net_fut = get_net_port(packet.src_ip, 0, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
+        let src_net = get_net_port(packet.src_ip, 0, self.src_map.clone());
+        let dst_net = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
 
         if src_net.is_some() && dst_net.is_some(){
             let (src_net, src_port) = src_net.unwrap();
@@ -118,10 +114,8 @@ impl FlowTable {
             return res.clone()
         }
 
-        let src_net_fut = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
-
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
+        let src_net = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
+        let dst_net = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
 
         if src_net.is_some() && dst_net.is_some(){
             let (src_net, src_port) = src_net.unwrap();
@@ -130,10 +124,9 @@ impl FlowTable {
             return res.clone()
         }
 
-        let src_net_fut = get_net_port(packet.src_ip, 0, self.src_map.clone());
-        let dst_net_fut = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
+        let src_net = get_net_port(packet.src_ip, 0, self.src_map.clone());
+        let dst_net = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
 
-        let (src_net, dst_net) = futures::future::join(src_net_fut, dst_net_fut).await;
 
         if src_net.is_some() && dst_net.is_some(){
             let (src_net, src_port) = src_net.unwrap();
@@ -145,7 +138,7 @@ impl FlowTable {
     }
 }
 
-async fn get_net_port(ip: u32, port: u16, map: BTreeMap<u8, HashMap<(u32,u16), bool>>) -> Option<(u32,u16)>{
+fn get_net_port(ip: u32, port: u16, map: BTreeMap<u8, HashMap<(u32,u16), bool>>) -> Option<(u32,u16)>{
     for (mask, map) in map.clone() {
         let bin = ip;
         let base: u32 = 2;
