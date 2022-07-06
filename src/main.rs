@@ -19,10 +19,10 @@ impl Flow{
     fn new(src_net: Ipv4Net, src_port: u16, dst_net: Ipv4Net, dst_port: u16, action: Action) -> Self {
         Self {  
             src_net: as_u32_be(&src_net.addr().octets()),
-            src_mask: as_u32_be(&src_net.network().octets()),
+            src_mask: as_u32_be(&src_net.netmask().octets()),
             src_port,
             dst_net: as_u32_be(&dst_net.addr().octets()),
-            dst_mask: as_u32_be(&dst_net.network().octets()),
+            dst_mask: as_u32_be(&dst_net.netmask().octets()),
             dst_port,
             action,
         }
@@ -37,8 +37,8 @@ enum Action {
 
 #[derive(Debug,Clone)]
 struct FlowTable{
-    src_map: Rc<BTreeMap<u8, HashMap<(u32,u16), bool>>>,
-    dst_map: Rc<BTreeMap<u8, HashMap<(u32,u16), bool>>>,
+    src_map: Rc<BTreeMap<u32, HashMap<(u32,u16), bool>>>,
+    dst_map: Rc<BTreeMap<u32, HashMap<(u32,u16), bool>>>,
     flow_map: Rc<HashMap<(u32, u16, u32, u16), Action>>,
 }
 
@@ -51,12 +51,7 @@ impl FlowTable {
         }
     }
     fn add_flow(&mut self, flow: Flow){
-        let src_mask: u8;
-        if flow.src_mask == 0 {
-            src_mask = 32;
-        } else {
-            src_mask = 32 - ((4294967295 - flow.src_mask + 1) as f32).log2() as u8;
-        }
+        let src_mask = 4294967295 - flow.src_mask;
         let src_map = Rc::get_mut(&mut self.src_map).unwrap(); 
         let res = src_map.get_mut(&src_mask);
         match res {
@@ -70,12 +65,7 @@ impl FlowTable {
             },
         }
 
-        let dst_mask: u8;
-        if flow.dst_mask == 0 {
-            dst_mask = 32;
-        } else {
-            dst_mask = 32 - ((4294967295 - flow.dst_mask + 1) as f32).log2() as u8;
-        }
+        let dst_mask = 4294967295 - flow.dst_mask;
         let dst_map = Rc::get_mut(&mut self.dst_map).unwrap(); 
         let res = dst_map.get_mut(&dst_mask);
         match res {
@@ -134,18 +124,10 @@ impl FlowTable {
     }
 }
 
-fn get_net_port(ip: u32, port: u16, map: Rc<BTreeMap<u8, HashMap<(u32,u16), bool>>>) -> Option<(u32,u16)>{
+fn get_net_port(ip: u32, port: u16, map: Rc<BTreeMap<u32, HashMap<(u32,u16), bool>>>) -> Option<(u32,u16)>{
     for (mask, map) in map.as_ref() {
-        let bin = ip;
-        let base: u32 = 2;
-        let max_mask_bin = 4294967295;
-        let mask_bin: u32;
-        if *mask == 32 {
-            mask_bin = 32;
-        } else {
-            mask_bin = max_mask_bin - (base.pow(*mask as u32) - 1);
-        }
-        let masked: u32 = bin & mask_bin;
+        let mask_bin = 4294967295 - mask;
+        let masked: u32 = ip & mask_bin;
         let kv = map.get_key_value(&(masked, port));
         match kv {
             Some((k,_)) => { return Some(k.clone()) },
@@ -175,8 +157,8 @@ impl Packet {
 }
 
 fn main() {
-    let mut flow_table = FlowTable::new();
 
+    let mut flow_table = FlowTable::new();
 
     flow_table.add_flow(Flow::new("1.0.0.0/25".parse().unwrap(),
         0,
@@ -221,7 +203,7 @@ fn main() {
         80,
         Action::Allow("int3".into())
     ));
-
+    
     let packet = Packet::new("5.0.0.1".parse().unwrap(), 0, "6.0.0.1".parse().unwrap(), 80);
 
     let now = Instant::now();
