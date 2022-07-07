@@ -180,9 +180,70 @@ impl Packet {
     }
 }
 
+fn generate_flows(src_count: u16, src_start_net: Ipv4Net, dst_count: u16, dst_start_net: Ipv4Net) -> Vec<Flow> {
+    let mut src_start_net_bin = as_u32_be(&src_start_net.addr().octets());
+    let src_start_net_step = 4294967295 - as_u32_be(&src_start_net.netmask().octets()) + 1;
+
+    let mut dst_start_net_bin = as_u32_be(&dst_start_net.addr().octets());
+    let dst_start_net_step = 4294967295 - as_u32_be(&dst_start_net.netmask().octets()) + 1;
+
+    let mut flow_list = Vec::new();
+
+    let mut src_net_list = Vec::new();
+    for _ in 0..src_count {
+        src_net_list.push(src_start_net_bin);
+        src_start_net_bin = src_start_net_bin + src_start_net_step
+    }
+
+    let mut dst_net_list = Vec::new();
+    for _ in 0..src_count {
+        dst_net_list.push(dst_start_net_bin);
+        dst_start_net_bin = dst_start_net_bin + dst_start_net_step
+    }
+
+
+    let mut counter = 0;
+    for src_net in src_net_list.clone() {
+        for dst_net in dst_net_list.clone() {
+            let flow = Flow{
+                src_net: src_net,
+                src_mask: as_u32_be(&src_start_net.netmask().octets()),
+                src_port: 0,
+                dst_net: dst_net,
+                dst_mask: as_u32_be(&src_start_net.netmask().octets()),
+                dst_port: 0,
+                action: Action::Allow(format!("intf{}", counter)),
+            };
+            counter = counter + 1;
+            flow_list.push(flow);
+        }
+    }
+    flow_list
+
+}
+
 fn main() {
 
     let mut flow_table = FlowTable::new();
+
+    let flow_list = generate_flows(10, "1.0.0.0/24".parse().unwrap(), 10, "2.0.0.0/24".parse().unwrap());
+    
+
+    for flow in flow_list {
+        flow_table.add_flow(flow);
+    }
+
+    let flow_list = generate_flows(1000, "3.0.0.0/25".parse().unwrap(), 1000, "4.0.0.0/24".parse().unwrap());
+
+    for flow in flow_list {
+        flow_table.add_flow(flow);
+    }
+
+    let flow_list = generate_flows(1000, "5.0.0.0/26".parse().unwrap(), 1000, "6.0.0.0/27".parse().unwrap());
+
+    for flow in flow_list {
+        flow_table.add_flow(flow);
+    }
 
     flow_table.add_flow(Flow::new("1.0.0.0/25".parse().unwrap(),
         0,
@@ -213,8 +274,8 @@ fn main() {
         0,
         Action::Allow("int4".into())
     ));
-    println!("flow table:");
-    flow_table.print();
+    //println!("flow table:");
+    //flow_table.print();
 
     println!("1st stage lookups:");
     
