@@ -39,7 +39,7 @@ enum Action {
 struct FlowTable{
     src_map: Rc<BTreeMap<u32, HashMap<(u32,u16), bool>>>,
     dst_map: Rc<BTreeMap<u32, HashMap<(u32,u16), bool>>>,
-    flow_map: Rc<HashMap<(u32, u16, u32, u16), Action>>,
+    flow_map: Rc<HashMap<(u32, u32, u16, u32, u32, u16), Action>>,
 }
 
 impl FlowTable {
@@ -79,8 +79,32 @@ impl FlowTable {
             },
         }
         let flow_map = Rc::get_mut(&mut self.flow_map).unwrap(); 
-        flow_map.insert((flow.src_net, flow.src_port, flow.dst_net, flow.dst_port), flow.action);
+        flow_map.insert((flow.src_net, flow.src_mask, flow.src_port, flow.dst_net, flow.dst_mask, flow.dst_port), flow.action);
 
+    }
+
+    fn print(&mut self){
+        let flow_map = Rc::get_mut(&mut self.flow_map).unwrap(); 
+        for ((src_net, src_mask, src_port,dst_net, dst_mask, dst_port), action) in flow_map {
+            let max_mask: u32 = 4294967295;
+            let src_prefix_length: u32;
+            if *src_mask == 0 {
+                src_prefix_length = 0;
+            } else {
+                src_prefix_length = 32 - ((max_mask - *src_mask + 1) as f32).log2() as u32;
+            }
+            let dst_prefix_length: u32;
+            if *dst_mask == 0 {
+                dst_prefix_length = 0;
+            } else {
+                dst_prefix_length = 32 - ((max_mask - *dst_mask + 1) as f32).log2() as u32;
+            }
+            let octet = as_br(*src_net);
+            let src = Ipv4Net::new(Ipv4Addr::new(octet[0], octet[1], octet[2], octet[3]), src_prefix_length as u8).unwrap();
+            let octet = as_br(*dst_net);
+            let dst = Ipv4Net::new(Ipv4Addr::new(octet[0], octet[1], octet[2], octet[3]), dst_prefix_length as u8).unwrap();
+            println!("src: {:?}:{:?} dst: {:?}:{:?} -> {:?}", src, src_port, dst, dst_port, action);
+        }
     }
 
     fn match_flow(&mut self, packet: Packet) -> Option<Action>{
@@ -89,48 +113,48 @@ impl FlowTable {
         let src_net_specific = get_net_port(packet.src_ip, packet.src_port, self.src_map.clone());
         let dst_net_specific = get_net_port(packet.dst_ip, packet.dst_port, self.dst_map.clone());
         if src_net_specific.is_some() && dst_net_specific.is_some(){
-            let (src_net, src_port) = src_net_specific.unwrap();
-            let (dst_net, dst_port) = dst_net_specific.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            let (src_net, src_mask,  src_port) = src_net_specific.unwrap();
+            let (dst_net, dst_mask, dst_port) = dst_net_specific.unwrap();
+            let res = self.flow_map.get(&(src_net, src_mask, src_port, dst_net, dst_mask, dst_port));
             return res.cloned()
         }
 
         // match specific src_port and 0 dst_port
         let src_net_0 = get_net_port(packet.src_ip, 0, self.src_map.clone());
         if src_net_0.is_some() && dst_net_specific.is_some(){
-            let (src_net, src_port) = src_net_0.unwrap();
-            let (dst_net, dst_port) = dst_net_specific.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            let (src_net, src_mask, src_port) = src_net_0.unwrap();
+            let (dst_net, dst_mask, dst_port) = dst_net_specific.unwrap();
+            let res = self.flow_map.get(&(src_net, src_mask, src_port, dst_net, dst_mask, dst_port));
             return res.cloned()
         }
 
         // match 0 src_port and specific dst_port
         let dst_net_0 = get_net_port(packet.dst_ip, 0, self.dst_map.clone());
         if src_net_specific.is_some() && dst_net_0.is_some(){
-            let (src_net, src_port) = src_net_specific.unwrap();
-            let (dst_net, dst_port) = dst_net_0.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            let (src_net,src_mask, src_port) = src_net_specific.unwrap();
+            let (dst_net,dst_mask, dst_port) = dst_net_0.unwrap();
+            let res = self.flow_map.get(&(src_net, src_mask, src_port, dst_net, dst_mask, dst_port));
             return res.cloned()
         }
 
         // match 0 src_port and 0 dst_port
         if src_net_0.is_some() && dst_net_0.is_some(){
-            let (src_net, src_port) = src_net_0.unwrap();
-            let (dst_net, dst_port) = dst_net_0.unwrap();
-            let res = self.flow_map.get(&(src_net, src_port, dst_net, dst_port));
+            let (src_net,src_mask, src_port) = src_net_0.unwrap();
+            let (dst_net,dst_mask, dst_port) = dst_net_0.unwrap();
+            let res = self.flow_map.get(&(src_net, src_mask, src_port, dst_net, dst_mask, dst_port));
             return res.cloned()
         }
         None
     }
 }
 
-fn get_net_port(ip: u32, port: u16, map: Rc<BTreeMap<u32, HashMap<(u32,u16), bool>>>) -> Option<(u32,u16)>{
+fn get_net_port(ip: u32, port: u16, map: Rc<BTreeMap<u32, HashMap<(u32,u16), bool>>>) -> Option<(u32,u32,u16)>{
     for (mask, map) in map.as_ref() {
         let mask_bin = 4294967295 - mask;
         let masked: u32 = ip & mask_bin;
         let kv = map.get_key_value(&(masked, port));
         match kv {
-            Some((k,_)) => { return Some(k.clone()) },
+            Some(((net, port),_)) => { return Some((net.clone(),mask_bin, port.clone())) },
             None => { },
         }
     }
@@ -163,10 +187,57 @@ fn main() {
     flow_table.add_flow(Flow::new("1.0.0.0/25".parse().unwrap(),
         0,
         "2.0.0.0/25".parse().unwrap(),
-        80,
+        0,
         Action::Allow("int1".into())
     ));
+
     
+
+    flow_table.add_flow(Flow::new("3.0.0.0/24".parse().unwrap(),
+        0,
+        "4.0.0.0/24".parse().unwrap(),
+        0,
+        Action::Allow("int2".into())
+    ));
+
+    flow_table.add_flow(Flow::new("5.0.0.0/23".parse().unwrap(),
+        0,
+        "6.0.0.0/23".parse().unwrap(),
+        0,
+        Action::Allow("int3".into())
+    ));
+
+    flow_table.add_flow(Flow::new("0.0.0.0/0".parse().unwrap(),
+        0,
+        "0.0.0.0/0".parse().unwrap(),
+        0,
+        Action::Allow("int4".into())
+    ));
+    println!("flow table:");
+    flow_table.print();
+
+    println!("1st stage lookups:");
+    
+    let packet = Packet::new("1.0.0.1".parse().unwrap(), 0, "2.0.0.1".parse().unwrap(), 0);
+
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int1".into())),res);
+    }
+    println!("-- specific sport - specific dport {:?}", now.elapsed());
+
+    let packet = Packet::new("1.0.0.1".parse().unwrap(), 80, "2.0.0.1".parse().unwrap(), 0);
+
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int1".into())),res);
+    }
+    println!("-- wildcard sport - specific dport {:?}", now.elapsed());
+
     let packet = Packet::new("1.0.0.1".parse().unwrap(), 0, "2.0.0.1".parse().unwrap(), 80);
 
     let now = Instant::now();
@@ -175,16 +246,40 @@ fn main() {
         let res = res;
         assert_eq!(Some(Action::Allow("int1".into())),res);
     }
-    println!("1st stage lookup {:?}", now.elapsed());
+    println!("-- specific sport - wildcard dport {:?}", now.elapsed());
 
+    let packet = Packet::new("1.0.0.1".parse().unwrap(), 80, "2.0.0.1".parse().unwrap(), 80);
 
-    flow_table.add_flow(Flow::new("3.0.0.0/24".parse().unwrap(),
-        0,
-        "4.0.0.0/24".parse().unwrap(),
-        80,
-        Action::Allow("int2".into())
-    ));
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int1".into())),res);
+    }
+    println!("-- specific sport - wildcard dport {:?}", now.elapsed());
+
+    println!("2nd stage lookups:");
     
+    let packet = Packet::new("3.0.0.1".parse().unwrap(), 0, "4.0.0.1".parse().unwrap(), 0);
+    
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int2".into())),res);
+    }
+    println!("-- specific sport - specific dport {:?}", now.elapsed());
+
+    let packet = Packet::new("3.0.0.1".parse().unwrap(), 80, "4.0.0.1".parse().unwrap(), 0);
+    
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int2".into())),res);
+    }
+    println!("-- wildcard sport - specific dport {:?}", now.elapsed());
+
     let packet = Packet::new("3.0.0.1".parse().unwrap(), 0, "4.0.0.1".parse().unwrap(), 80);
     
     let now = Instant::now();
@@ -193,17 +288,40 @@ fn main() {
         let res = res;
         assert_eq!(Some(Action::Allow("int2".into())),res);
     }
-    println!("2nd stage lookup {:?}", now.elapsed());
+    println!("-- specific sport - wildcard dport {:?}", now.elapsed());
 
-
-
-    flow_table.add_flow(Flow::new("5.0.0.0/23".parse().unwrap(),
-        0,
-        "6.0.0.0/23".parse().unwrap(),
-        80,
-        Action::Allow("int3".into())
-    ));
+    let packet = Packet::new("3.0.0.1".parse().unwrap(), 80, "4.0.0.1".parse().unwrap(), 80);
     
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int2".into())),res);
+    }
+    println!("-- wildcard sport - wildcard dport {:?}", now.elapsed());
+
+    println!("3rd stage lookups:");
+    
+    let packet = Packet::new("5.0.0.1".parse().unwrap(), 0, "6.0.0.1".parse().unwrap(), 0);
+
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int3".into())),res);
+    }
+    println!("-- specific sport - specific dport {:?}", now.elapsed());
+
+    let packet = Packet::new("5.0.0.1".parse().unwrap(), 80, "6.0.0.1".parse().unwrap(), 0);
+
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int3".into())),res);
+    }
+    println!("-- wildcard sport - specific dport {:?}", now.elapsed());
+
     let packet = Packet::new("5.0.0.1".parse().unwrap(), 0, "6.0.0.1".parse().unwrap(), 80);
 
     let now = Instant::now();
@@ -212,17 +330,38 @@ fn main() {
         let res = res;
         assert_eq!(Some(Action::Allow("int3".into())),res);
     }
-    println!("3rd stage lookup {:?}", now.elapsed());
+    println!("-- specific sport - wildcard dport {:?}", now.elapsed());
 
+    let packet = Packet::new("5.0.0.1".parse().unwrap(), 80, "6.0.0.1".parse().unwrap(), 80);
 
-    flow_table.add_flow(Flow::new("0.0.0.0/0".parse().unwrap(),
-        0,
-        "0.0.0.0/0".parse().unwrap(),
-        0,
-        Action::Allow("int4".into())
-    ));
-    
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int3".into())),res);
+    }
+    println!("-- wildcard sport - wildcard dport {:?}", now.elapsed());
+
+    println!("4th stage lookups:");
      
+    let packet = Packet::new("1.2.3.5".parse().unwrap(), 0, "5.6.7.8".parse().unwrap(), 0);
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int4".into())),res);
+    }
+    println!("-- specific sport - specific dport {:?}", now.elapsed());
+
+    let packet = Packet::new("1.2.3.5".parse().unwrap(), 80, "5.6.7.8".parse().unwrap(), 0);
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int4".into())),res);
+    }
+    println!("-- wildcard sport - specific dport {:?}", now.elapsed());
+
     let packet = Packet::new("1.2.3.5".parse().unwrap(), 0, "5.6.7.8".parse().unwrap(), 80);
     let now = Instant::now();
     for _ in 0..1000000{
@@ -230,7 +369,16 @@ fn main() {
         let res = res;
         assert_eq!(Some(Action::Allow("int4".into())),res);
     }
-    println!("4th stage lookup {:?}", now.elapsed());
+    println!("-- specific sport - wildcard dport {:?}", now.elapsed());
+
+    let packet = Packet::new("1.2.3.5".parse().unwrap(), 80, "5.6.7.8".parse().unwrap(), 80);
+    let now = Instant::now();
+    for _ in 0..1000000{
+        let res = flow_table.match_flow(packet.clone());
+        let res = res;
+        assert_eq!(Some(Action::Allow("int4".into())),res);
+    }
+    println!("-- wildcard sport - wildcard dport {:?}", now.elapsed());
 
 
 }
